@@ -323,25 +323,43 @@
 
         const percentChange = ((endPrice - startPrice) / startPrice) * 100;
         const absChange = Math.abs(percentChange).toFixed(2);
-        const points = Math.round(absChange * 100) / 100;
+        
+        // Calculate points with a 5x multiplier for more dramatic changes
+        const changeMultiplier = (absChange / 100) * 5; // 5x multiplier for more impact
+        const points = Math.round(score * changeMultiplier * 100) / 100;
 
         const isCorrect = (direction === "up" && isUp) || (direction === "down" && !isUp);
         if (isCorrect) {
           score += points;
-          showResult(`Correct! +$${points} • Price ${isUp ? 'increased' : 'decreased'} by ${absChange}%`, true);
+          showResult(`Correct! +$${points.toFixed(2)} • Price ${isUp ? 'increased' : 'decreased'} by ${absChange}%`, true);
         } else {
-          score -= points;
-          showResult(`Wrong! -$${points} • Price ${isUp ? 'increased' : 'decreased'} by ${absChange}%`, false);
+          score -= points * 1.5; // Additional 1.5x penalty for wrong guesses
+          showResult(`Wrong! -$${(points * 1.5).toFixed(2)} • Price ${isUp ? 'increased' : 'decreased'} by ${absChange}%`, false);
         }
 
+        // Ensure score has 2 decimal places
         score = Math.round(score * 100) / 100;
-        document.getElementById("score-value").textContent = `$${score}`;
+        
+        // If score is very close to 0 (less than 1 cent), set it to 0
+        if (score < 0.01) {
+          score = 0;
+        }
+        
+        document.getElementById("score-value").textContent = `$${score.toFixed(2)}`;
         
         series.setData(currentData.slice(0, revealIndex + 5));
         chart.timeScale().fitContent();
 
         document.getElementById("game-controls").classList.add("hidden");
         document.getElementById("next-round-control").classList.remove("hidden");
+        
+        // If score reaches 0, show game over message
+        if (score === 0) {
+          showResult("Game Over! You've lost all your money!", false);
+          document.getElementById("next-round-control").classList.add("hidden");
+          document.getElementById("setup-controls").classList.remove("hidden");
+          score = 100; // Reset score for new game
+        }
       }
 
       async function nextRound() {
