@@ -347,7 +347,30 @@
         
         document.getElementById("score-value").textContent = `$${score.toFixed(2)}`;
         
-        series.setData(currentData.slice(0, revealIndex + 5));
+        // Create modified data with semi-transparent initial candles
+        const revealedData = currentData.map((candle, index) => {
+          if (index < revealIndex) {
+            const baseColor = candle.close >= candle.open ? "#26a69a" : "#ef5350";
+            return {
+              ...candle,
+              color: baseColor + "80", // 80 in hex = 50% opacity
+              wickColor: baseColor + "80"
+            };
+          }
+          return candle;
+        });
+        
+        // Remove existing series and create new one with the modified data
+        chart.removeSeries(series);
+        series = chart.addCandlestickSeries({
+          upColor: "#26a69a",
+          downColor: "#ef5350",
+          borderVisible: false,
+          wickUpColor: "#26a69a",
+          wickDownColor: "#ef5350"
+        });
+        series.setData(revealedData.slice(0, revealIndex + 5));
+        
         chart.timeScale().fitContent();
 
         document.getElementById("game-controls").classList.add("hidden");
