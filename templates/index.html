@@ -121,7 +121,7 @@
         
         #chart-container {
           height: 300px;
-          margin: 120px 0 20px 0;
+          margin: 120px 0 10px 0;
         }
 
         .btn {
@@ -159,7 +159,7 @@
       @media screen and (max-width: 380px) {
         #chart-container {
           height: 250px;
-          margin: 140px 0 20px 0;
+          margin: 140px 0 10px 0;
         }
 
         #score, #stock-info {
@@ -205,10 +205,49 @@
     <script>
       let chart;
       let series;
+      let emaSeries;
+      let upperBandSeries;
+      let lowerBandSeries;
       let currentData;
+      let historicalData;
       let score = 100;  // Start with 100 points
       let revealIndex;
       let currentStock;
+
+      function calculateEMA(data, period = 21) {
+        const k = 2 / (period + 1);
+        let ema = [{ time: data[0].time, value: data[0].close }];
+        
+        for (let i = 1; i < data.length; i++) {
+          const value = data[i].close * k + ema[i-1].value * (1-k);
+          ema.push({ time: data[i].time, value: value });
+        }
+        return ema;
+      }
+
+      function calculateBollingerBands(data, period = 20, stdDev = 2) {
+        let bands = [];
+        for (let i = period - 1; i < data.length; i++) {
+          const slice = data.slice(i - period + 1, i + 1);
+          const closes = slice.map(d => d.close);
+          
+          // Calculate SMA
+          const sma = closes.reduce((a, b) => a + b, 0) / period;
+          
+          // Calculate Standard Deviation
+          const squaredDiffs = closes.map(close => Math.pow(close - sma, 2));
+          const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period;
+          const std = Math.sqrt(variance);
+          
+          bands.push({
+            time: data[i].time,
+            upper: sma + (stdDev * std),
+            lower: sma - (stdDev * std),
+            middle: sma  // Adding SMA as middle band
+          });
+        }
+        return bands;
+      }
 
       function showResult(message, isCorrect) {
         const resultElement = document.getElementById("result-message");
@@ -273,6 +312,27 @@
           wickDownColor: "#ef5350",
         });
 
+        // Add EMA series
+        emaSeries = chart.addLineSeries({
+          color: '#f48fb1',
+          lineWidth: 2,
+          title: '21 EMA',
+        });
+
+        // Add Bollinger Bands series
+        upperBandSeries = chart.addLineSeries({
+          color: 'rgba(255, 255, 255, 0.5)',
+          lineWidth: 1,
+          title: 'Upper BB',
+        });
+
+        lowerBandSeries = chart.addLineSeries({
+          color: 'rgba(255, 255, 255, 0.5)',
+          lineWidth: 1,
+          title: 'Lower BB',
+        });
+
+        // Set up resize observer
         new ResizeObserver(entries => {
           if (entries.length === 0 || entries[0].target !== chartContainer) { return; }
           const newRect = entries[0].contentRect;
@@ -296,6 +356,7 @@
           }
 
           currentData = result.data.candles;
+          historicalData = result.data.historicalCandles;
           currentStock = result.data.stock;
           showStockInfo(currentStock.symbol, currentStock.name);
 
@@ -305,7 +366,26 @@
           }
 
           initChart();
-          series.setData(currentData.slice(0, revealIndex));
+          const visibleData = currentData.slice(0, revealIndex);
+          
+          // Set candlestick data
+          series.setData(visibleData);
+          
+          // Calculate EMA using historical data + visible data
+          const emaData = calculateEMA([...historicalData, ...visibleData]);
+          // Only show EMA for visible data
+          const visibleEmaData = emaData.slice(historicalData.length);
+          emaSeries.setData(visibleEmaData);
+          
+          // Calculate Bollinger Bands using historical + visible data
+          const allData = [...historicalData, ...visibleData];
+          const bollingerBands = calculateBollingerBands(allData);
+          // Only show Bollinger Bands for visible data
+          const visibleBollingerBands = bollingerBands.slice(bollingerBands.length - visibleData.length);
+          
+          upperBandSeries.setData(visibleBollingerBands.map(b => ({ time: b.time, value: b.upper })));
+          lowerBandSeries.setData(visibleBollingerBands.map(b => ({ time: b.time, value: b.lower })));
+          
           chart.timeScale().fitContent();
 
           document.getElementById("setup-controls").classList.add("hidden");
@@ -337,10 +417,8 @@
           showResult(`Wrong! -$${(points * 1.5).toFixed(2)} • Price ${isUp ? 'increased' : 'decreased'} by ${absChange}%`, false);
         }
 
-        // Ensure score has 2 decimal places
         score = Math.round(score * 100) / 100;
         
-        // If score is very close to 0 (less than 1 cent), set it to 0
         if (score < 0.01) {
           score = 0;
         }
@@ -353,15 +431,20 @@
             const baseColor = candle.close >= candle.open ? "#26a69a" : "#ef5350";
             return {
               ...candle,
-              color: baseColor + "80", // 80 in hex = 50% opacity
+              color: baseColor + "80",
               wickColor: baseColor + "80"
             };
           }
           return candle;
         });
         
-        // Remove existing series and create new one with the modified data
+        // Remove existing series and create new ones with the modified data
         chart.removeSeries(series);
+        chart.removeSeries(emaSeries);
+        chart.removeSeries(upperBandSeries);
+        chart.removeSeries(lowerBandSeries);
+        
+        // Create new series
         series = chart.addCandlestickSeries({
           upColor: "#26a69a",
           downColor: "#ef5350",
@@ -369,19 +452,55 @@
           wickUpColor: "#26a69a",
           wickDownColor: "#ef5350"
         });
-        series.setData(revealedData.slice(0, revealIndex + 5));
+
+        emaSeries = chart.addLineSeries({
+          color: '#f48fb1',
+          lineWidth: 2,
+          title: '21 EMA',
+        });
+
+        upperBandSeries = chart.addLineSeries({
+          color: 'rgba(255, 255, 255, 0.5)',
+          lineWidth: 1,
+          title: 'Upper BB',
+        });
+
+        lowerBandSeries = chart.addLineSeries({
+          color: 'rgba(255, 255, 255, 0.5)',
+          lineWidth: 1,
+          title: 'Lower BB',
+        });
+
+        const visibleData = revealedData.slice(0, revealIndex + 5);
+        
+        // Set data for all series
+        series.setData(visibleData);
+        
+        // Calculate EMA using historical data + visible data
+        const emaData = calculateEMA([...historicalData, ...visibleData]);
+        // Only show EMA for visible data
+        const visibleEmaData = emaData.slice(historicalData.length);
+        emaSeries.setData(visibleEmaData);
+        
+        // Calculate Bollinger Bands using historical + visible data
+        const allData = [...historicalData, ...visibleData];
+        const bollingerBands = calculateBollingerBands(allData);
+        // Only show Bollinger Bands for visible data
+        const visibleBollingerBands = bollingerBands.slice(bollingerBands.length - visibleData.length);
+        
+        upperBandSeries.setData(visibleBollingerBands.map(b => ({ time: b.time, value: b.upper })));
+        lowerBandSeries.setData(visibleBollingerBands.map(b => ({ time: b.time, value: b.lower })));
         
         chart.timeScale().fitContent();
 
         document.getElementById("game-controls").classList.add("hidden");
         document.getElementById("next-round-control").classList.remove("hidden");
         
-        // If score reaches 0, show game over message
         if (score === 0) {
           showResult("Game Over! You've lost all your money!", false);
           document.getElementById("next-round-control").classList.add("hidden");
           document.getElementById("setup-controls").classList.remove("hidden");
-          score = 100; // Reset score for new game
+          score = 100;
         }
       }
 
@@ -396,6 +515,7 @@
           }
 
           currentData = result.data.candles;
+          historicalData = result.data.historicalCandles;
           currentStock = result.data.stock;
           showStockInfo(currentStock.symbol, currentStock.name);
 
@@ -404,7 +524,59 @@
             revealIndex = currentData.length - 5;
           }
 
-          series.setData(currentData.slice(0, revealIndex));
+          // Remove all existing series
+          chart.removeSeries(series);
+          chart.removeSeries(emaSeries);
+          chart.removeSeries(upperBandSeries);
+          chart.removeSeries(lowerBandSeries);
+          
+          // Create new series
+          series = chart.addCandlestickSeries({
+            upColor: "#26a69a",
+            downColor: "#ef5350",
+            borderVisible: false,
+            wickUpColor: "#26a69a",
+            wickDownColor: "#ef5350"
+          });
+
+          emaSeries = chart.addLineSeries({
+            color: '#f48fb1',
+            lineWidth: 2,
+            title: '21 EMA',
+          });
+
+          upperBandSeries = chart.addLineSeries({
+            color: 'rgba(255, 255, 255, 0.5)',
+            lineWidth: 1,
+            title: 'Upper BB',
+          });
+
+          lowerBandSeries = chart.addLineSeries({
+            color: 'rgba(255, 255, 255, 0.5)',
+            lineWidth: 1,
+            title: 'Lower BB',
+          });
+
+          const visibleData = currentData.slice(0, revealIndex);
+          
+          // Set data for all series
+          series.setData(visibleData);
+          
+          // Calculate EMA using historical data + visible data
+          const emaData = calculateEMA([...historicalData, ...visibleData]);
+          // Only show EMA for visible data
+          const visibleEmaData = emaData.slice(historicalData.length);
+          emaSeries.setData(visibleEmaData);
+          
+          // Calculate Bollinger Bands using historical + visible data
+          const allData = [...historicalData, ...visibleData];
+          const bollingerBands = calculateBollingerBands(allData);
+          // Only show Bollinger Bands for visible data
+          const visibleBollingerBands = bollingerBands.slice(bollingerBands.length - visibleData.length);
+          
+          upperBandSeries.setData(visibleBollingerBands.map(b => ({ time: b.time, value: b.upper })));
+          lowerBandSeries.setData(visibleBollingerBands.map(b => ({ time: b.time, value: b.lower })));
+          
           chart.timeScale().fitContent();
           hideResult();
 

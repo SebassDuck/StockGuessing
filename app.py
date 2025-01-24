@@ -147,11 +147,32 @@ def get_random_stock():
             })
             
         random_start_idx = random.randint(0, max_start_idx)
-        df = df.iloc[random_start_idx:random_start_idx + 30]
+        window_df = df.iloc[random_start_idx:random_start_idx + 30]
+        
+        # Get historical data for indicator calculations
+        # We need:
+        # - 21 days for EMA
+        # - 20 days for Bollinger Bands
+        lookback_days = 30  # Safety margin for calculations
+        historical_start_idx = max(0, random_start_idx - lookback_days)
+        historical_df = df.iloc[historical_start_idx:random_start_idx]
         
         # Convert the data to the format needed for TradingView's charts
         candles = []
-        for index, row in df.iterrows():
+        historical_candles = []
+        
+        # Convert historical data
+        for index, row in historical_df.iterrows():
+            historical_candles.append({
+                'time': index.timestamp(),
+                'open': float(row['Open']),
+                'high': float(row['High']),
+                'low': float(row['Low']),
+                'close': float(row['Close'])
+            })
+        
+        # Convert window data
+        for index, row in window_df.iterrows():
             candles.append({
                 'time': index.timestamp(),
                 'open': float(row['Open']),
@@ -164,7 +185,8 @@ def get_random_stock():
             'success': True,
             'data': {
                 'stock': stock,
-                'candles': candles
+                'candles': candles,
+                'historicalCandles': historical_candles
             }
         })
     except Exception as e:
